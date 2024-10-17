@@ -8,24 +8,24 @@
 #define FRAME_COUNT 8
 #define PAGE_SIZE 2
 
-// Структура для представления памяти
+// Initializing structure
 typedef struct {
     int process_id;
     int page_num;
     int last_accessed;
 } memory;
 
-memory virtual_memory[VIRTUAL_MEMORY_SIZE];    // Виртуальная память
-memory *RAM[RAM_SIZE];                         // ОЗУ (массив указателей)
-int page_table[NUM_PROCESSES][PAGES_PER_PROCESS];  // Таблицы страниц
-int time_step = 0;                             // Шаг времени
+memory virtual_memory[VIRTUAL_MEMORY_SIZE];   // Fixed virtual memory
+memory *RAM[RAM_SIZE];                        // Pointers for dynamic RAM
+int page_table[NUM_PROCESSES][PAGES_PER_PROCESS];  // Page tables for processes
+int time_step = 0;
 
-// Прототипы функций
+// Declaring functions to call in main
 void initialize_virtual_memory();
 void initialize_page_tables();
 void load_page_to_ram(int process_id, int page_num);
 int find_empty_frame();
-void evict_page(int process_id);
+void evict_page(int process_id, int page_num);
 int find_lru_global();
 int find_lru_local(int process_id);
 void print_page_tables(FILE *out_file);
@@ -37,71 +37,63 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    // Открытие входного файла
+    // Opening in.txt
     FILE *in_file = fopen(argv[1], "r");
     if (in_file == NULL) {
-        fprintf(stderr, "Ошибка при открытии входного файла\n");
+        fprintf(stderr, "Error opening input file\n");
         exit(EXIT_FAILURE);
     }
-
-    // Открытие выходного файла
+    // Opening out.txt
     FILE *out_file = fopen(argv[2], "w");
     if (out_file == NULL) {
-        fprintf(stderr, "Ошибка при открытии выходного файла\n");
+        fprintf(stderr, "Error opening output file\n");
         fclose(in_file);
         exit(EXIT_FAILURE);
     }
 
-    // Инициализация виртуальной памяти и таблиц страниц
+    // Initializing virtual memory and page tables
     initialize_virtual_memory();
     initialize_page_tables();
 
-    // Инициализация ОЗУ
+    // Initializing RAM
     for (int i = 0; i < RAM_SIZE; i++) {
         RAM[i] = NULL;
     }
 
-    // Чтение process_id из входного файла и обработка страниц
+    // Reading process ids from in.txt and processing pages
     int process_id;
     while (fscanf(in_file, "%d", &process_id) != EOF) {
-        if (process_id < 0 || process_id >= NUM_PROCESSES) {
-            fprintf(stderr, "Неверный process_id: %d\n", process_id);
-            continue;
-        }
-
-        // Поиск следующей страницы процесса для загрузки
         int page_num = -1;
+
+        // Finding the next page of the process to load
         for (int i = 0; i < PAGES_PER_PROCESS; i++) {
-            if (page_table[process_id][i] == 99) {
+            if (page_table[process_id][i] == 99) {  // If page is in virtual memory
                 page_num = i;
                 break;
             }
         }
 
         if (page_num == -1) {
-            // Все страницы процесса уже в ОЗУ
-            continue;
+            continue;  // Moving to the next process
         }
 
-        // Загрузка страницы в ОЗУ
+        // Loading the page to RAM
         load_page_to_ram(process_id, page_num);
-
-        // Увеличиваем шаг времени
-        time_step++;
+        time_step++; // Incrementing time
     }
 
-    // Вывод таблиц страниц и содержимого ОЗУ в выходной файл
+    // Printing the page tables and RAM
     print_page_tables(out_file);
     print_ram(out_file);
 
-    // Закрытие файлов
+    // Closing the files
     fclose(in_file);
     fclose(out_file);
 
-    return 0;
+    exit(EXIT_SUCCESS);
 }
 
-// Функция инициализации виртуальной памяти
+// Initializing virtual memory with process pages
 void initialize_virtual_memory() {
     int index = 0;
     for (int pid = 0; pid < NUM_PROCESSES; pid++) {
@@ -109,97 +101,84 @@ void initialize_virtual_memory() {
             for (int i = 0; i < PAGE_SIZE; i++) {
                 virtual_memory[index].process_id = pid;
                 virtual_memory[index].page_num = page_num;
-                virtual_memory[index].last_accessed = 0; // Инициализируем 0
+                virtual_memory[index].last_accessed = 0;  // Initializing to 0
                 index++;
             }
         }
     }
 }
 
-// Функция инициализации таблиц страниц
+// Initializing all page tables
 void initialize_page_tables() {
     for (int i = 0; i < NUM_PROCESSES; i++) {
         for (int j = 0; j < PAGES_PER_PROCESS; j++) {
-            page_table[i][j] = 99; // 99 означает, что страница на диске
+            page_table[i][j] = 99;  // 99 for all pages in disc
         }
     }
 }
 
-// Функция загрузки страницы в ОЗУ
+// Loading a page into RAM
 void load_page_to_ram(int process_id, int page_num) {
     int frame_num = find_empty_frame();
-    if (frame_num == -1) {
-        // Нет свободного фрейма, нужно вытеснить страницу
-        evict_page(process_id);
-        frame_num = find_empty_frame();
-        if (frame_num == -1) {
-            fprintf(stderr, "Ошибка: Нет свободного фрейма после вытеснения\n");
-            exit(EXIT_FAILURE);
-        }
+    if (frame_num == -1) {  // Using LRU if frame num is not found
+        evict_page(process_id, page_num);  // Evicting a page
+        frame_num = find_empty_frame();    // Finding an empty frame num
     }
 
-    // Загрузка страницы в найденный фрейм
+    // Corrected index calculation for virtual memory
+    int vm_index = (process_id * PAGES_PER_PROCESS + page_num) * PAGE_SIZE;
+
+    // Loading the page into the found frame
     for (int i = 0; i < PAGE_SIZE; i++) {
-        RAM[frame_num * PAGE_SIZE + i] =
-            &virtual_memory[(process_id * PAGES_PER_PROCESS + page_num)
-                            * PAGE_SIZE + i];
+        RAM[frame_num * PAGE_SIZE + i] = &virtual_memory[vm_index + i];
     }
 
-    // Обновление таблицы страниц
+    // Updating the page table
     page_table[process_id][page_num] = frame_num;
 
-    // Обновление last_accessed
+    // Updating the last accessed time
     for (int i = 0; i < PAGE_SIZE; i++) {
         RAM[frame_num * PAGE_SIZE + i]->last_accessed = time_step;
     }
 }
 
-// Функция поиска пустого фрейма в ОЗУ
+// Finding an empty frame in RAM
 int find_empty_frame() {
     for (int i = 0; i < FRAME_COUNT; i++) {
         if (RAM[i * PAGE_SIZE] == NULL) {
-            return i; // Возвращаем номер пустого фрейма
+            return i; // Returning the empty frame
         }
     }
-    return -1; // Пустых фреймов нет
+    return -1;  // No empty frame found
 }
 
-// Функция вытеснения страницы из ОЗУ
-void evict_page(int process_id) {
+// Evicting a page from RAM
+void evict_page(int process_id, int page_num) {
     int lru_frame = find_lru_local(process_id);
     if (lru_frame == -1) {
-        // Нет страниц процесса в ОЗУ, используем глобальный LRU
-        lru_frame = find_lru_global();
+        lru_frame = find_lru_global();  // Using global LRU if no local page
     }
 
-    if (lru_frame == -1) {
-        fprintf(stderr, "Ошибка: Нет страниц для вытеснения\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Информация о вытесняемой странице
+    // Marking the evicted page as 99
     int evicted_pid = RAM[lru_frame * PAGE_SIZE]->process_id;
     int evicted_page = RAM[lru_frame * PAGE_SIZE]->page_num;
-
-    // Обновление таблицы страниц
     page_table[evicted_pid][evicted_page] = 99;
 
-    // Очистка фрейма в ОЗУ
+    // Clearing the frame in RAM
     for (int i = 0; i < PAGE_SIZE; i++) {
         RAM[lru_frame * PAGE_SIZE + i] = NULL;
     }
 }
 
-// Функция поиска наименее недавно использованного фрейма (локальный LRU)
+// Finding the least recently used page for a specific process
 int find_lru_local(int process_id) {
     int lru_frame = -1;
-    int oldest_time = -1;
+    int oldest_time = time_step;
 
     for (int i = 0; i < FRAME_COUNT; i++) {
-        int index = i * PAGE_SIZE;
-        if (RAM[index] != NULL && RAM[index]->process_id == process_id) {
-            if (oldest_time == -1 || RAM[index]->last_accessed < oldest_time) {
-                oldest_time = RAM[index]->last_accessed;
+        if (RAM[i * PAGE_SIZE] != NULL && RAM[i * PAGE_SIZE]->process_id == process_id) {
+            if (RAM[i * PAGE_SIZE]->last_accessed < oldest_time) {
+                oldest_time = RAM[i * PAGE_SIZE]->last_accessed;
                 lru_frame = i;
             }
         }
@@ -207,16 +186,15 @@ int find_lru_local(int process_id) {
     return lru_frame;
 }
 
-// Функция поиска наименее недавно использованного фрейма (глобальный LRU)
+// Finding the least recently used page in RAM
 int find_lru_global() {
     int lru_frame = -1;
-    int oldest_time = -1;
+    int oldest_time = time_step;
 
     for (int i = 0; i < FRAME_COUNT; i++) {
-        int index = i * PAGE_SIZE;
-        if (RAM[index] != NULL) {
-            if (oldest_time == -1 || RAM[index]->last_accessed < oldest_time) {
-                oldest_time = RAM[index]->last_accessed;
+        if (RAM[i * PAGE_SIZE] != NULL) {
+            if (RAM[i * PAGE_SIZE]->last_accessed < oldest_time) {
+                oldest_time = RAM[i * PAGE_SIZE]->last_accessed;
                 lru_frame = i;
             }
         }
@@ -224,7 +202,7 @@ int find_lru_global() {
     return lru_frame;
 }
 
-// Функция вывода таблиц страниц в файл
+// Printing page tables to the output file
 void print_page_tables(FILE *out_file) {
     for (int pid = 0; pid < NUM_PROCESSES; pid++) {
         for (int i = 0; i < PAGES_PER_PROCESS; i++) {
@@ -237,24 +215,17 @@ void print_page_tables(FILE *out_file) {
     }
 }
 
-// Функция вывода содержимого ОЗУ в файл
+// Printing RAM to the output file
 void print_ram(FILE *out_file) {
-    for (int i = 0; i < FRAME_COUNT; i++) {
-        int index = i * PAGE_SIZE;
-        if (RAM[index] != NULL) {
-            fprintf(out_file, "%d,%d,%d; %d,%d,%d",
-                    RAM[index]->process_id,
-                    RAM[index]->page_num,
-                    RAM[index]->last_accessed,
-                    RAM[index + 1]->process_id,
-                    RAM[index + 1]->page_num,
-                    RAM[index + 1]->last_accessed);
+    for (int i = 0; i < RAM_SIZE; i++) {
+        if (RAM[i] != NULL) {
+            fprintf(out_file, "%d,%d,%d", RAM[i]->process_id, RAM[i]->page_num, RAM[i]->last_accessed);
         } else {
-            fprintf(out_file, "empty; empty");
+            fprintf(out_file, "empty");
         }
-        if (i < FRAME_COUNT - 1) {
+        if (i < RAM_SIZE - 1) {
             fprintf(out_file, "; ");
         }
     }
-    fprintf(out_file, "\n");
+    fprintf(out_file, ";\n");
 }
