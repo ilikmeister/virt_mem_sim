@@ -17,16 +17,20 @@ int main(int argc, char *argv[]) {
 	}
 	return 0;
 
-	FILE *input_file = fopen(input_filename, "r");
-    if (input_file == NULL) {
-        fprintf(stderr, "Wrong File format.\n", input_filename);
+	char *in_file_name = argv[1];
+    char *out_file_name = argv[2];
+
+	FILE *in_file = fopen(in_file_name, "r");
+    if (in_file == NULL) {
+        fprintf(stderr, "Wrong File format.\n", in_file_name);
         return 1;
 }
 
-    FILE *output_file = fopen(output_filename, "w");
-    if (output_file == NULL) {
-        fprintf(stderr, "Wrong File format.\n", output_filename);
-        fclose(input_file); 
+    FILE *out_file = fopen(out_file_name, "w");
+    if (out_file == NULL) {
+        fprintf(stderr, "Wrong File format.\n", out_file_name);
+        fclose(in_file); 
         return 1;
 }
+
 }
