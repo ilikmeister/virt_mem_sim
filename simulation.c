@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-// Структура для хранения информации о странице
 typedef struct {
     int process_id;
     int page_num;
