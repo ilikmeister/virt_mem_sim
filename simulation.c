@@ -34,13 +34,20 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    
+    // запуск оперативы
     for (int i = 0; i < 16; i++) {
         RAM[i] = NULL;
     }
 
-    
-    int index = 0;
+    void page_tables() { // таблица страниц процессов здесь запускается
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            page_table[i][j] = 99;
+        }
+    }
+}
+    // блок с запуском вируталки 
+    int index = 0; 
     for (int pid = 0; pid < 4; pid++) { 
         for (int page_num = 0; page_num < 4; page_num++) { 
             for (int i = 0; i < 2; i++) { 
